@@ -2344,6 +2344,11 @@ def generate_html(all_data, all_stores):
                 var storeStock = {};
                 var storeTiers = {};
 
+                // Get filter values first
+                var filterArea = document.getElementById('msFilterArea').value;
+                var filterStore = document.getElementById('msFilterStore').value;
+                var filterFillRate = document.getElementById('msFilterFillRate').value;
+
                 for (var m = 0; m < retailData.length; m++) {
                     var item = retailData[m];
                     var tier = item.tier || '-';
@@ -2367,19 +2372,11 @@ def generate_html(all_data, all_stores):
 
                             if (!storeTiers[store][tier]) storeTiers[store][tier] = 0;
                             storeTiers[store][tier] = storeTiers[store][tier] + positiveStock;
-
-                            if (!tierCounts[tier]) tierCounts[tier] = 0;
-                            tierCounts[tier] = tierCounts[tier] + positiveStock;
                         }
                     }
                 }
 
-                // Get filter values
-                var filterArea = document.getElementById('msFilterArea').value;
-                var filterStore = document.getElementById('msFilterStore').value;
-                var filterFillRate = document.getElementById('msFilterFillRate').value;
-
-                // Build locationData with filters
+                // Build locationData with filters AND calculate tierCounts from filtered data
                 var allStoreNames = Object.keys(storeStock);
                 for (var p = 0; p < allStoreNames.length; p++) {
                     var storeName = allStoreNames[p];
@@ -2406,6 +2403,17 @@ def generate_html(all_data, all_stores):
                         fillRate: fillRate,
                         tiers: storeTiers[storeName]
                     };
+
+                    // Add tier counts from filtered stores only
+                    var storeTierData = storeTiers[storeName];
+                    if (storeTierData) {
+                        var tierKeys = Object.keys(storeTierData);
+                        for (var t = 0; t < tierKeys.length; t++) {
+                            var tierKey = tierKeys[t];
+                            if (!tierCounts[tierKey]) tierCounts[tierKey] = 0;
+                            tierCounts[tierKey] = tierCounts[tierKey] + storeTierData[tierKey];
+                        }
+                    }
 
                     totalActual = totalActual + actual;
                     totalMax = totalMax + max;
