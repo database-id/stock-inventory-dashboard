@@ -1129,6 +1129,8 @@ def generate_html(all_data, all_stores):
             border-radius: 10px; transition: all 0.2s ease;
         }
         .tier-item:hover { background: #eef2ff; transform: scale(1.05); }
+        .tier-item.clickable { border: 2px solid #e0e7ff; }
+        .tier-item.clickable:hover { background: #eef2ff; border-color: #6366f1; box-shadow: 0 4px 12px rgba(99,102,241,0.2); }
         .tier-item .tier-label { font-size: 0.7rem; color: #9ca3af; font-weight: 600; }
         .tier-item .tier-value { font-size: 1.1rem; font-weight: 700; color: #1f2937; margin-top: 4px; }
         .tier-item .tier-percent { font-size: 0.75rem; color: #6366f1; }
@@ -1470,6 +1472,19 @@ def generate_html(all_data, all_stores):
         </div>
     </div>
 
+    <!-- Modal Tier Article Detail -->
+    <div class="modal-overlay" id="tierModal" onclick="closeTierModal(event)">
+        <div class="modal-content" style="max-width: 900px;" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 id="tierModalTitle">📦 Detail Artikel</h2>
+                <button class="modal-close" onclick="closeTierModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="tierModalBody">
+                <!-- Content will be filled by JavaScript -->
+            </div>
+        </div>
+    </div>
+
     <script>
         // Embedded data
         const allData = ''' + data_json + ''';
@@ -1492,6 +1507,7 @@ def generate_html(all_data, all_stores):
         let currentView = 'inventory';
         let currentMSType = 'warehouse';
         let fillRateChart, tierDistChart;
+        let filteredTierArticles = {};  // Store articles by tier for modal
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -2274,6 +2290,7 @@ def generate_html(all_data, all_stores):
             var tierCounts = {};
             var totalActual = 0;
             var totalMax = 0;
+            filteredTierArticles = {};  // Reset articles
 
             if (isWarehouse) {
                 // WAREHOUSE: Gabungkan semua entitas per area
@@ -2343,6 +2360,7 @@ def generate_html(all_data, all_stores):
                 var retailData = entityData.retail;
                 var storeStock = {};
                 var storeTiers = {};
+                var storeArticles = {};  // {store: {tier: [{sku, nama, stock}]}}
 
                 // Get filter values first
                 var filterArea = document.getElementById('msFilterArea').value;
@@ -2367,11 +2385,25 @@ def generate_html(all_data, all_stores):
                             if (!storeStock[store]) {
                                 storeStock[store] = 0;
                                 storeTiers[store] = {};
+                                storeArticles[store] = {};
                             }
                             storeStock[store] = storeStock[store] + positiveStock;
 
-                            if (!storeTiers[store][tier]) storeTiers[store][tier] = 0;
+                            if (!storeTiers[store][tier]) {
+                                storeTiers[store][tier] = 0;
+                                storeArticles[store][tier] = [];
+                            }
                             storeTiers[store][tier] = storeTiers[store][tier] + positiveStock;
+
+                            // Track article detail
+                            if (positiveStock > 0) {
+                                storeArticles[store][tier].push({
+                                    sku: item.sku,
+                                    nama: item.nama || item.sku,
+                                    stock: positiveStock,
+                                    store: store
+                                });
+                            }
                         }
                     }
                 }
@@ -2404,14 +2436,21 @@ def generate_html(all_data, all_stores):
                         tiers: storeTiers[storeName]
                     };
 
-                    // Add tier counts from filtered stores only
+                    // Add tier counts and articles from filtered stores only
                     var storeTierData = storeTiers[storeName];
+                    var storeArticleData = storeArticles[storeName];
                     if (storeTierData) {
                         var tierKeys = Object.keys(storeTierData);
                         for (var t = 0; t < tierKeys.length; t++) {
                             var tierKey = tierKeys[t];
                             if (!tierCounts[tierKey]) tierCounts[tierKey] = 0;
                             tierCounts[tierKey] = tierCounts[tierKey] + storeTierData[tierKey];
+
+                            // Collect articles for this tier
+                            if (storeArticleData && storeArticleData[tierKey]) {
+                                if (!filteredTierArticles[tierKey]) filteredTierArticles[tierKey] = [];
+                                filteredTierArticles[tierKey] = filteredTierArticles[tierKey].concat(storeArticleData[tierKey]);
+                            }
                         }
                     }
 
@@ -2433,7 +2472,7 @@ def generate_html(all_data, all_stores):
             updateFillRateChart(locationData);
             updateTierDistChart(tierCounts);
             renderStoreAnalysisList(locationData);
-            renderTierBreakdown(tierCounts);
+            renderTierBreakdown(tierCounts, filteredTierArticles);
 
             console.log('updateMaxStockAnalysis DONE - Actual:', totalActual, 'Max:', totalMax);
         }
@@ -2614,7 +2653,7 @@ def generate_html(all_data, all_stores):
             document.getElementById('storeAnalysisList').innerHTML = html || '<div style="padding:20px;color:#9ca3af;text-align:center;">Tidak ada data</div>';
         }
 
-        function renderTierBreakdown(tierCounts) {
+        function renderTierBreakdown(tierCounts, tierArticles) {
             const total = Object.values(tierCounts).reduce((a, b) => a + b, 0);
             const tiers = Object.keys(tierCounts).sort();
 
@@ -2625,11 +2664,13 @@ def generate_html(all_data, all_stores):
                 if (tier === '0' && count === 0) return;
                 if (count === 0) return;
                 const percent = total > 0 ? (count / total * 100) : 0;
+                const hasArticles = tierArticles && tierArticles[tier] && tierArticles[tier].length > 0;
                 html += `
-                    <div class="tier-item">
+                    <div class="tier-item ${hasArticles ? 'clickable' : ''}" ${hasArticles ? 'onclick="showTierArticles(\\'' + tier + '\\')"' : ''} style="${hasArticles ? 'cursor:pointer;' : ''}">
                         <div class="tier-label">TIER ${tier}</div>
                         <div class="tier-value">${count.toLocaleString('id-ID')}</div>
                         <div class="tier-percent">${percent.toFixed(1)}%</div>
+                        ${hasArticles ? '<div style="font-size:0.65rem;color:#6366f1;margin-top:4px;">Klik untuk detail</div>' : ''}
                     </div>
                 `;
             });
@@ -2645,6 +2686,76 @@ def generate_html(all_data, all_stores):
 
             document.getElementById('tierBreakdown').innerHTML = html;
         }
+
+        function showTierArticles(tier) {
+            const articles = filteredTierArticles[tier] || [];
+            if (articles.length === 0) {
+                alert('Tidak ada artikel untuk Tier ' + tier);
+                return;
+            }
+
+            // Group by SKU and sum stock
+            const grouped = {};
+            articles.forEach(art => {
+                if (!grouped[art.sku]) {
+                    grouped[art.sku] = {
+                        sku: art.sku,
+                        nama: art.nama,
+                        totalStock: 0,
+                        stores: []
+                    };
+                }
+                grouped[art.sku].totalStock += art.stock;
+                grouped[art.sku].stores.push({ store: art.store, stock: art.stock });
+            });
+
+            // Sort by total stock desc
+            const sorted = Object.values(grouped).sort((a, b) => b.totalStock - a.totalStock);
+
+            let html = `
+                <div style="margin-bottom:15px;padding:10px;background:#f0f9ff;border-radius:8px;">
+                    <strong>Tier ${tier}</strong> - ${sorted.length} artikel, Total: ${articles.reduce((a,b) => a + b.stock, 0).toLocaleString('id-ID')} pairs
+                </div>
+                <div style="max-height:400px;overflow-y:auto;">
+                    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                        <thead>
+                            <tr style="background:#f8fafc;position:sticky;top:0;">
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #e5e7eb;">SKU</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #e5e7eb;">Nama Artikel</th>
+                                <th style="padding:10px;text-align:right;border-bottom:2px solid #e5e7eb;">Total Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            sorted.forEach((item, idx) => {
+                html += `
+                    <tr style="background:${idx % 2 === 0 ? '#fff' : '#f9fafb'};">
+                        <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-family:monospace;font-size:0.8rem;">${item.sku}</td>
+                        <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">${item.nama}</td>
+                        <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:600;">${item.totalStock.toLocaleString('id-ID')}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table></div>';
+
+            document.getElementById('tierModalTitle').textContent = '📦 Detail Artikel Tier ' + tier;
+            document.getElementById('tierModalBody').innerHTML = html;
+            document.getElementById('tierModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeTierModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('tierModal').classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+
+        // Close tier modal with Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeTierModal();
+        });
     </script>
 </body>
 </html>'''
